@@ -3,9 +3,7 @@
 > vite
 
 
-  VITE v5.4.20  ready in 207 ms
+  VITE v5.4.20  ready in 228 ms
 
   ➜  Local:   http://localhost:3000/
   ➜  Network: http://172.20.19.132:3000/
-12:10:26 PM [vite] ✨ new dependencies optimized: react-markdown, remark-gfm
-12:10:26 PM [vite] ✨ optimized dependencies changed. reloading

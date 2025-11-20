@@ -3,6 +3,8 @@ import { Loader2, Link as LinkIcon, Trash2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+const REQUEST_TIMEOUT_MS = 60000 // Increase wait time to 60s to accommodate slower webhooks
+
 const sanitize = (text='') => text.replace(/[<>]/g, '')
 
 function SourceBadges({ sources = [] }){
@@ -138,23 +140,39 @@ export default function ChatArea({ activeAssistant }){
   const sendMessage = async () => {
     if(!activeAssistant || !input.trim()) return
     const userMsg = { role:'user', content: input.trim() }
+    const historyToSend = [...messages, userMsg] // ensure the latest user message is included
     setMessages(m => [...m, userMsg])
     setInput('')
     setLoading(true)
+    let timeoutId
     try {
       const controller = new AbortController()
-      const id = setTimeout(()=> controller.abort(), 20000)
+      timeoutId = setTimeout(()=> controller.abort(), REQUEST_TIMEOUT_MS)
       const res = await fetch(activeAssistant.webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg.content, history: messages }),
+        body: JSON.stringify({ message: userMsg.content, history: historyToSend }),
         signal: controller.signal
       })
-      clearTimeout(id)
       if(!res.ok){
         throw new Error(`Request failed: ${res.status}`)
       }
-      const data = await res.json()
+
+      // Try to parse JSON first; if it fails, fall back to text
+      let data
+      try {
+        data = await res.json()
+      } catch (e) {
+        const text = await res.text()
+        try {
+          data = JSON.parse(text)
+        } catch {
+          // If it's plain text, wrap as assistant message
+          setMessages(m => [...m, { role: 'assistant', content: text || 'Received non-JSON response.' }])
+          return
+        }
+      }
+
       const built = parseWebhookResponse(data)
       if(built.length===0) {
         setMessages(m=> [...m, { role:'assistant', content: 'No content in webhook response.' }])
@@ -162,8 +180,11 @@ export default function ChatArea({ activeAssistant }){
         setMessages(m => [...m, ...built])
       }
     } catch (e) {
-      setMessages(m => [...m, { role: 'assistant', content: `Error: ${e.message}` }])
+      const isAbort = e?.name === 'AbortError'
+      const msg = isAbort ? `Request timed out after ${REQUEST_TIMEOUT_MS/1000}s. The server may still be processing.` : `Error: ${e.message}`
+      setMessages(m => [...m, { role: 'assistant', content: msg }])
     } finally {
+      if(timeoutId) clearTimeout(timeoutId)
       setLoading(false)
     }
   }
